@@ -1,0 +1,12 @@
+[package]
+name = "cache"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+walkdir = "2"
+rusqlite = { version = "0.27.0", features = ["bundled"] }
+sha2 = "0.10.2"
+osu-parser = { git = "https://github.com/Righeil/osu-parser-rust" }
