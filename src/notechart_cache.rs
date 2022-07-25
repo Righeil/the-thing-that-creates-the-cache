@@ -53,25 +53,40 @@ fn create_default(db_path: &Path) -> Result<Connection, Error> {
 
     connection.execute(
         "CREATE TABLE notecharts (
-            id	        INTEGER NOT NULL UNIQUE,
-            hash	    TEXT NOT NULL UNIQUE,
-            artist	    TEXT,
-            title	    TEXT,
-            version	    TEXT,
-            path        TEXT NOT NULL UNIQUE,
-            audio       TEXT,
-            background  TEXT,
+            id	                INTEGER NOT NULL UNIQUE,
+            set_id              INTEGER NOT NULL,
+            hash	            TEXT NOT NULL UNIQUE,
+            artist	            TEXT,
+            title	            TEXT,
+            version	            TEXT,
+            path                TEXT NOT NULL,
+            audio               TEXT,
+            background          TEXT,
+            PRIMARY             KEY(id AUTOINCREMENT)
+        );",
+        []
+    )?;
+
+    connection.execute(
+        "CREATE TABLE notechart_sets (
+            id	    INTEGER NOT NULL UNIQUE,
+            path	TEXT UNIQUE,
             PRIMARY KEY(id AUTOINCREMENT)
-        );", 
+        );",
         []
     )?;
 
     return Ok(connection)
 }
 
+#[derive(PartialEq)]
+pub struct Set {
+    pub id: i64,
+    pub path: String
+}
 pub struct CachedNoteChart {
-    pub id: u64,
-    pub hash: String,
+    pub id: i64,
+    pub set: Option<Set>,
     pub artist: String,
     pub title: String,
     pub version: String,
