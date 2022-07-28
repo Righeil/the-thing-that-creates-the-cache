@@ -57,9 +57,7 @@ pub fn find_new(dir_path: &str, conn: &mut Connection) -> Result<(), CacheError>
 
     for set in sets {
         for notechart_filename in set.file_paths {
-            let mut path = set.path.to_string();
-            path.push_str("/");
-            path.push_str(&notechart_filename);
+            let path = [set.path.clone(), notechart_filename.clone()].join("/");
 
             let hash = match notechart_cache::get_hash(&path) {
                 Ok(h) => h,
@@ -72,7 +70,6 @@ pub fn find_new(dir_path: &str, conn: &mut Connection) -> Result<(), CacheError>
             };
 
             if is_exists {
-                println!("exists");
                 continue
             }
 
@@ -204,10 +201,9 @@ fn is_notechart(path: &Path) -> bool {
 }
 
 fn get_set_id(conn: &Connection, path: &str) -> Result<Option<i64>, Error> {
-    let parent = get_parent(path);
-    let query = format!("SELECT id FROM notechart_sets WHERE path='{}'", parent);
+    let query = "SELECT id FROM notechart_sets WHERE path=?1";
     let mut stmt = conn.prepare(&query)?;
-    let mut rows = stmt.query([])?;
+    let mut rows = stmt.query([path])?;
 
     if let Some(row) = rows.next()? {
         return Ok(Some(row.get(0)?))
