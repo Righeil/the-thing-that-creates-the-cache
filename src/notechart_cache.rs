@@ -4,37 +4,29 @@ use std::fs::File;
 use std::io;
 use rusqlite::{Connection, Result, Error};
 
+mod error;
 mod new;
 mod changed;
+
+use error::CacheError;
 
 const DB_PATH: &str = "userdata/notechart.db";
 
 #[derive(Debug)]
-pub enum CacheError {
-    DirReadError,
-    ConnectionError(Error),
-    TransactionError,
-    FileReadError,
-    DbInsertError(Error),
-    DbSelectError,
-    DbDeleteError,
-    DbUpdateError
+pub struct Set {
+    pub id: i64,
+    pub path: String 
 }
 
-impl std::error::Error for CacheError {}
-impl std::fmt::Display for CacheError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            CacheError::DirReadError => write!(f, "Failed to read directory"),
-            CacheError::ConnectionError(e) => write!(f, "Failed to open connection: {}", e),
-            CacheError::TransactionError => write!(f, "Failed to do transaction"),
-            CacheError::FileReadError => write!(f, "Failed to read file"),
-            CacheError::DbInsertError(e) => write!(f, "Failed to insert row: {}", e),
-            CacheError::DbSelectError => write!(f, "Failed to select row"),
-            CacheError::DbDeleteError => write!(f, "Failed to delete row"),
-            CacheError::DbUpdateError => write!(f, "Failed to update row")
-        }
-    }
+pub struct CachedNoteChart {
+    pub id: i64,
+    pub set_id: Option<i64>,
+    pub artist: String,
+    pub title: String,
+    pub version: String,
+    pub path: String,
+    pub background: String,
+    pub audio: String,
 }
 
 pub fn get_connection() -> Result<Connection, Error> {
@@ -59,7 +51,7 @@ fn create_default(db_path: &Path) -> Result<Connection, Error> {
             artist	            TEXT,
             title	            TEXT,
             version	            TEXT,
-            path                TEXT NOT NULL,
+            filename            TEXT NOT NULL,
             audio               TEXT,
             background          TEXT,
             PRIMARY             KEY(id AUTOINCREMENT)
@@ -79,31 +71,19 @@ fn create_default(db_path: &Path) -> Result<Connection, Error> {
     return Ok(connection)
 }
 
-#[derive(PartialEq)]
-pub struct Set {
-    pub id: i64,
-    pub path: String
-}
-pub struct CachedNoteChart {
-    pub id: i64,
-    pub set: Option<Set>,
-    pub artist: String,
-    pub title: String,
-    pub version: String,
-    pub path: String,
-    pub background: String,
-    pub audio: String,
-}
-
 pub fn update(directories: &Vec<&str>) -> Result<(), CacheError> {
     let mut conn = match get_connection() {
         Ok(c) => c,
         Err(e) => return Err(CacheError::ConnectionError(e))
     };
 
+    print!("Correcting modified notecharts");
     changed::fix_changed(&mut conn)?;
+    println!("...ok!");
 
+    println!("Looking for new notecharts");
     for dir_path in directories {
+        println!("{dir_path}");
         if let Err(e) = new::find_new(dir_path, &mut conn) {
             println!("Failed to process directory: '{}', error: {}.", dir_path, e);
         }

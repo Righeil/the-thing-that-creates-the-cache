@@ -5,23 +5,29 @@ use notechart_cache::CacheError;
 
 #[derive(Debug, Clone)]
 struct ChangedNotechart {
-    id: u64,
+    id: i64,
+    set_id: i64,
     hash: String,
-    path: String
+    set_path: String,
+    filename: String
 }
 
 pub fn fix_changed(conn: &mut Connection) -> Result<(), CacheError> {
     let (changed, removed) = find_changed_notecharts(&conn)?;
 
+    println!("changed: {} | removed: {}", changed.len(), removed.len());
+
     let tr = match conn.transaction() {
         Ok(t) => t,
-        Err(_) => return Err(CacheError::TransactionError)
+        Err(e) => return Err(CacheError::TransactionError(e))
     };
 
     for notechart in &changed {
-        let info = match osu_parser::import_info(&notechart.path) {
+        let path = [notechart.set_path.clone(), notechart.filename.clone()].join("/");
+
+        let info = match osu_parser::import_info(&path) {
             Ok(i) => i,
-            Err(_) => return Err(CacheError::FileReadError)
+            Err(e) => return Err(CacheError::FileReadError(e))
         };
 
         let artist = info.metadata.artist;
@@ -40,29 +46,30 @@ pub fn fix_changed(conn: &mut Connection) -> Result<(), CacheError> {
 
         let result = tr.execute(
             "UPDATE notecharts SET 
-            hash=?1,
-            artist = ?2, 
-            title = ?3, 
-            version = ?4, 
-            audio = ?5, 
-            background = ?6
-            WHERE id=?7",
-            params![notechart.hash, artist, title, version, audio, background, notechart.id],
+            set_id=?1,
+            hash=?2,
+            artist=?3, 
+            title=?4, 
+            version=?5, 
+            audio=?6, 
+            background=?7
+            WHERE id=?8",
+            params![notechart.set_id, notechart.hash, artist, title, version, audio, background, notechart.id],
         );
 
-        if let Err(_) = result {
-            return Err(CacheError::DbUpdateError)
+        if let Err(e) = result {
+            return Err(CacheError::DbUpdateError(e))
         }
     }
 
     for notechart in &removed {
-        if let Err(_) = tr.execute("DELETE FROM notecharts WHERE id=?1", [notechart.id]) {
-            return Err(CacheError::DbDeleteError)
+        if let Err(e) = tr.execute("DELETE FROM notecharts WHERE id=?1", [notechart.id]) {
+            return Err(CacheError::DbDeleteError(e))
         };
     }
 
-    if let Err(_) = tr.commit() {
-        return Err(CacheError::TransactionError)
+    if let Err(e) = tr.commit() {
+        return Err(CacheError::TransactionError(e))
     }
 
     return Ok(())
@@ -72,32 +79,62 @@ fn find_changed_notecharts(conn: &Connection) -> Result<(Vec<ChangedNotechart>, 
     let mut changed_notecharts: Vec<ChangedNotechart> = vec![];
     let mut removed_notecharts: Vec<ChangedNotechart> = vec![];
 
-    let query = "SELECT id, hash, path FROM notecharts";
+    let query = "SELECT id, set_id, hash, filename FROM notecharts";
     let mut stmt = match conn.prepare(query) {
         Ok(s) => s,
-        Err(_) => return Err(CacheError::DbSelectError)
+        Err(e) => return Err(CacheError::DbSelectError(e))
     };
 
     let notechart_iter = stmt.query_map([], |row| {
         Ok(ChangedNotechart {
             id: row.get(0)?,
-            hash: row.get(1)?,
-            path: row.get(2)?
+            set_id: row.get(1)?,
+            hash: row.get(2)?,
+            set_path: String::new(),
+            filename: row.get(3)?
         })
     });
 
     let notechart_iter = match notechart_iter {
         Ok(n) => n,
-        Err(_) => return Err(CacheError::DbSelectError)
+        Err(e) => return Err(CacheError::DbSelectError(e))
     };
 
     for notechart in notechart_iter {
-        let notechart = match notechart {
+        let mut notechart = match notechart {
             Ok(n) => n,
             Err(_) => continue
         };
 
-        let hash = match notechart_cache::get_hash(&notechart.path) {
+        let query = "SELECT path FROM notechart_sets WHERE id=?1";
+        let mut stmt = match conn.prepare(query) {
+            Ok(s) => s,
+            Err(e) => return Err(CacheError::DbSelectError(e))
+        };
+
+        let mut rows = match stmt.query([notechart.set_id]) {
+            Ok(s) => s,
+            Err(e) => return Err(CacheError::DbSelectError(e))
+        };
+
+        if let Ok(row) = rows.next() {
+            match row {
+                Some(r) => {
+                    notechart.set_path = match r.get(0) {
+                        Ok(p) => p,
+                        Err(e) => return Err(CacheError::DbSelectError(e))
+                    };
+                }
+                None => panic!("?? maybe set is removed idk")
+            }
+        }
+        else {
+            panic!("!! maybe set is removed idk")
+        }
+
+        let path = [notechart.set_path.clone(), notechart.filename.clone()].join("/");
+
+        let hash = match notechart_cache::get_hash(&path) {
             Ok(h) => h,
             Err(_) => {
                 removed_notecharts.push(notechart.clone());
